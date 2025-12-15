@@ -34,6 +34,13 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <sstream>
+#include <cstring>
 
 using namespace std;
 using namespace flair::core;
@@ -134,9 +141,22 @@ dwatraj::dwatraj(string name, TargetController *controller): Thread(getFramework
 
     l = new DoubleSpinBox(setupLawTab->NewRow(), "L", " m", 0, 10, 0.1, 1, 1);
     std::cerr << "[DWA_traj] Initialization complete\n";
+
+    // Setup UDP
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("socket creation failed");
+    }
+    memset(&gc_addr, 0, sizeof(gc_addr));
+    gc_addr.sin_family = AF_INET;
+    gc_addr.sin_port = htons(9005);
+    gc_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 }
 
 dwatraj::~dwatraj() {
+    if (sockfd >= 0) {
+        close(sockfd);
+    }
 }
 
 void dwatraj::Run(void) {
@@ -154,6 +174,39 @@ void dwatraj::Run(void) {
        
         if(behaviourMode == BehaviourMode_t::Manual) ComputeManualControls();
         if(behaviourMode == BehaviourMode_t::Auto) ComputeAutoControls();
+
+        // --- TELEMETRY (Always send) ---
+        Vector3Df t_ugv_pos, t_ugv_vel;
+        Vector2Df t_ugv_2Dpos, t_ugv_2Dvel;
+        Vector2Df t_goal_pos;
+        
+        ugvVrpn->GetPosition(t_ugv_pos);
+        ugvVrpn->GetSpeed(t_ugv_vel);
+        t_ugv_pos.To2Dxy(t_ugv_2Dpos);
+        t_ugv_vel.To2Dxy(t_ugv_2Dvel);
+        
+        Quaternion t_vrpnQuaternion;
+        ugvVrpn->GetQuaternion(t_vrpnQuaternion);
+        float t_yaw = t_vrpnQuaternion.ToEuler().yaw;
+
+        trajectory->GetEnd(t_goal_pos);
+        
+        std::stringstream ss;
+        // DWA,timestamp,ugv_x,ugv_y,ugv_yaw,ugv_vx,ugv_vy,target_x,target_y,obs_count,[obs_x,obs_y,obs_r...]
+        ss << "DWA," << GetTime() / 1000000000.0 << ",";
+        ss << t_ugv_2Dpos.x << "," << t_ugv_2Dpos.y << "," << t_yaw << ",";
+        ss << t_ugv_2Dvel.x << "," << t_ugv_2Dvel.y << ",";
+        ss << t_goal_pos.x << "," << t_goal_pos.y << ",";
+        
+        ss << nb_obs_ctrl;
+        for(int i=0; i<nb_obs_ctrl; i++) {
+            ss << "," << obs_coords_ctrl[i][0] << "," << obs_coords_ctrl[i][1] << "," << 0.1;
+        }
+
+        std::string msg = ss.str();
+        sendto(sockfd, msg.c_str(), msg.length(), 0, (const struct sockaddr *)&gc_addr, sizeof(gc_addr));
+        // --------------------------------
+
         WaitPeriod();
     }
 }
