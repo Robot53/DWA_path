@@ -1,4 +1,4 @@
-PROJECT(DWA_path_simulator)
+PROJECT(DWA_traj_simulator)
 cmake_minimum_required(VERSION 2.8)
 
 SET(FLAIR_USE_SIMULATOR TRUE)
@@ -11,6 +11,6 @@ SET(SRC_FILES
 )
 
 FLAIR_DEMO_HOST_CXX(${PROJECT_NAME} "${SRC_FILES}"
-           DEST_DIR DWA_path
+           DEST_DIR DWA_traj
            COPY_RESOURCES
 )

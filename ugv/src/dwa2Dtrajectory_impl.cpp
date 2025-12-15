@@ -15,7 +15,7 @@ using namespace flair::filter;
 
 dwa2Dtrajectory_impl::dwa2Dtrajectory_impl(
     dwa2Dtrajectory *self, const LayoutPosition *position, 
-    string name1, string name2) {
+    string name1) {
     
     first_update = true;
     is_running = false;
@@ -33,7 +33,7 @@ dwa2Dtrajectory_impl::dwa2Dtrajectory_impl(
     alpha = new DoubleSpinBox(reglages_groupbox->NewRow(), "alpha (heading)", "", 0.0, 10.0, 0.1, 1.5);
     beta = new DoubleSpinBox(reglages_groupbox->LastRowLastCol(), "beta (velocity)", "", 0.0, 10.0, 0.1, 1.0);
     gamma = new DoubleSpinBox(reglages_groupbox->LastRowLastCol(), "gamma (obstacle)", "", 0.0, 10.0, 0.1, 1.0);
-    epsilon = new DoubleSpinBox(reglages_groupbox->LastRowLastCol(), "epsilon (collision)", " m", 0.0, 1.0, 0.05, 3,0.1);
+    epsilon = new DoubleSpinBox(reglages_groupbox->LastRowLastCol(), "epsilon (collision)", " m", 0.0, 1.0, 0.);  // CORRECTION: 3,0.1 -> 0.1
     
     // ========== Matrice de sortie (pos, vel, acc, jerk) ==========
     MatrixDescriptor *desc = new MatrixDescriptor(4, 2);
@@ -64,14 +64,14 @@ dwa2Dtrajectory_impl::dwa2Dtrajectory_impl(
     params.v_max = 1.0f;
     params.w_max = 1.0f;
     params.dt = 0.1f;
-    params.T = 1.0f;
+    params.T = 2.0f;
     params.alpha = 1.5f;
     params.beta = 1.0f;
     params.gamma = 1.0f;
     params.epsilon = 0.1f;
     params.dv = 0.1f;
     params.dw = 0.1f;
-    params.sim_time = 20.0f;
+    params.sim_time = 30.0f;
 
     std::cerr << "[DWA_impl] Initialized successfully\n";
 }
@@ -262,6 +262,13 @@ float dwa2Dtrajectory_impl::EvaluateTrajectory(const SimulatedTrajectory &traj,
     float score = params.alpha * heading + 
                   params.beta * velocity_term + 
                   params.gamma * d_min;
+
+    // --- AJOUT OBLIGATOIRE ---
+    float dist_to_goal = (goal_pos - pos).GetNorm();
+    // Si on n'avance pas alors qu'on est loin du but -> PENALITÉ MORTELLE
+    if (v < 0.05f && dist_to_goal > 0.2f) {
+        score -= 1000.0f; 
+    }
     
     return score;
 }
@@ -272,20 +279,17 @@ void dwa2Dtrajectory_impl::CalcVelocityCommand(float &v_cmd, float &w_cmd) {
     float best_score = -std::numeric_limits<float>::infinity();
     v_cmd = 0.0f;
     w_cmd = 0.0f;
-
-    // Optimisation : Sortir l'objet de la boucle pour éviter re-allocation
-    // Mieux : le mettre en membre de la classe "private"
-    static SimulatedTrajectory traj; 
     
-    // Fenêtre dynamique simple (basée sur v_max pour l'instant)
+    // Start v from dv instead of 0 to force checking moving trajectories
+    // OR allow 0 but ensure scoring favors speed.
     for (float v = 0.0f; v <= params.v_max; v += params.dv) {
         for (float w = -params.w_max; w <= params.w_max; w += params.dw) {
             
-            // Simulation (version optimisée sans resize interne si possible)
-            traj = SimTrajectory(v, w, params.dt, params.T);
+            SimulatedTrajectory traj = SimTrajectory(v, w, params.dt, params.T);
             
             float score = EvaluateTrajectory(traj, v);
             
+            // Prefer higher velocity if scores are very close
             if (score > best_score) {
                 best_score = score;
                 v_cmd = v;
@@ -336,6 +340,7 @@ void dwa2Dtrajectory_impl::Update(Time time) {
     // ========== Mise à jour des paramètres UI ==========
     params.v_max = velocity->Value();
     params.w_max = angular->Value();
+    std::cerr << "[DWA] vitesse maximale=" << params.v_max <<"vitesse angulaire maximale"<<params.w_max<< "\n";
     params.alpha = alpha->Value();
     params.beta = beta->Value();
     params.gamma = gamma->Value();
@@ -352,23 +357,35 @@ void dwa2Dtrajectory_impl::Update(Time time) {
         is_running = false;
         std::cerr << "[DWA] Goal reached! Distance=" << dist_to_goal << "\n";
     } else {
-        // ========== Calcul de la commande DWA ==========
-        float v_cmd, w_cmd;
-        CalcVelocityCommand(v_cmd, w_cmd);
+        // ========== Calcul de la commande simple (contrôleur proportionnel) ==========
+        // CORRECTION: Calcul de l'angle vers le goal depuis la position ACTUELLE
+       float v_cmd, w_cmd;
+       CalcVelocityCommand(v_cmd, w_cmd);
+        std::cerr << "[DWA] v_cmd=" << v_cmd << " w_cmd=" << w_cmd 
+                  << " dist_to_goal=" << dist_to_goal << "\n";
         
         // ========== Mise à jour de l'état du robot ==========
         float old_px = pos.x;
         float old_py = pos.y;
+        float old_vx = vel.x;
+        float old_vy = vel.y;   
+        float old_ax = acc.x;
+        float old_ay = acc.y;   
         
+        // CORRECTION: Utiliser angle_off (orientation actuelle) pas theta_end
         RobotMotion(pos.x, pos.y, angle_off, v_cmd, w_cmd, delta_t);
         
         // Mise à jour de la vitesse (dérivée de position)
         vel.x = (pos.x - old_px) / delta_t;
         vel.y = (pos.y - old_py) / delta_t;
         
-        // Accélération (simplifiée)
-        acc = Vector2Df(0, 0);
-        jerk = Vector2Df(0, 0);
+        // Mise à jour de l'accélération (dérivée de vitesse)
+        acc.x = (vel.x - old_vx) / delta_t;
+        acc.y = (vel.y - old_vy) / delta_t;
+        
+        // Mise à jour du jerk (dérivée de l'accélération)
+        jerk.x = (acc.x - old_ax) / delta_t;
+        jerk.y = (acc.y - old_ay) / delta_t;
     }
     
     CurrentTime += delta_t;

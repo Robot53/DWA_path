@@ -36,7 +36,7 @@ public:
      * @param position Position du widget dans l'interface
      * @param name Nom du générateur
      */
-    dwa2Dtrajectory(const gui::LayoutPosition *position, std::string name1, std::string name2);
+    dwa2Dtrajectory(const gui::LayoutPosition *position, std::string name1);
     ~dwa2Dtrajectory();
 
     // ========== CONTRÔLE DE TRAJECTOIRE ==========

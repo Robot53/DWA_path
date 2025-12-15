@@ -14,15 +14,14 @@ namespace flair {
 namespace filter {
 
 dwa2Dtrajectory::dwa2Dtrajectory(
-    const LayoutPosition *position, string name1, string name2)
+    const LayoutPosition *position, string name1)
     : IODevice(position->getLayout(), name1) {
     
     // Création de l'implémentation avec 2 groupbox :
     // - name1 pour la partie motion
     // - name2 pour la partie costs
     pimpl_ = new dwa2Dtrajectory_impl(this, position,
-                                      name1,
-                                      name2);
+                                      name1);
     
     AddDataToLog(pimpl_->output);
     SetIsReady(true);

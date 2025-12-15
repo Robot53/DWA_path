@@ -40,8 +40,7 @@ class dwa2Dtrajectory_impl {
 public:
     dwa2Dtrajectory_impl(flair::filter::dwa2Dtrajectory *self,
                          const flair::gui::LayoutPosition *position,
-                         std::string name1,
-                         std::string name2);
+                         std::string name1);
     ~dwa2Dtrajectory_impl();
 
     void Update(flair::core::Time time);

@@ -11,7 +11,7 @@
 //
 /*********************************************************************/
 
-#include "dwapath.h"
+#include "dwatraj.h"
 #include <FrameworkManager.h>
 #include <UgvFactory.h>
 #include <stdio.h>
@@ -45,8 +45,8 @@ int main(int argc, char* argv[]) {
     manager->SetupLogger(log_path);
 
     Ugv* ugv=CreateUgv(name,ugv_type);
-    TargetEthController *controller = new TargetEthController("Dualshock3",ds3port);
-    dwa_path* demo = new dwa_path(name,controller);
+    TargetEthController *controller=new TargetEthController("Dualshock3",ds3port);
+    dwatraj* demo=new dwatraj(name,controller);
 
     demo->Start();
     demo->Join();
@@ -61,7 +61,7 @@ void parseOptions(int argc, char** argv) {
 
         ValueArg<string> nameArg("n","name","uav name, also used for vrpn",true,"x4","string");
         cmd.add( nameArg );
-
+        
         ValueArg<string> typeArg("t","type","ugv type: sumo, ugv_simu or ugv_simux (with x the number of the simulated ugv)",true,"ugv_sumo","string");
         cmd.add( typeArg );
 

@@ -1,9 +1,9 @@
 #! /bin/bash
 
 if [ -f /proc/xenomai/version ];then
-	EXEC=./DWA_path_ugv_rt
+	EXEC=./DWA_traj_rt
 else
-	EXEC=./DWA_path_ugv_nrt
+	EXEC=./DWA_traj_nrt
 fi
 
 $EXEC -n ugv_0 -t sumo -a 127.0.0.1 -p 9000 -l /tmp -x setup_sumo.xml

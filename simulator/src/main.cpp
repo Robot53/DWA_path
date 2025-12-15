@@ -16,71 +16,69 @@
 #include <TwoWheelRobot.h>
 #ifdef GL
 #include <Parser.h>
-#include <Blade.h>
-#include <Castle.h>
-#include <DoubleSpinBox.h>
-#include <Tab.h>
-#include <ISceneManager.h>
-#include <MeshSceneNode.h>
-#include <random>
+#include <Man.h>
+#include <Ball.h>
 #include <vector>
 #include <string>
-#include <ctime>
+#include <sstream>
 #endif
 
 using namespace TCLAP;
 using namespace std;
 using namespace flair::simulator;
 using namespace flair::sensor;
-#ifdef GL
-using namespace irr;
-using namespace irr::core;
-using namespace irr::scene;
-using namespace irr::video;
-using namespace flair::gui;
-#endif
 
 int port;
 int opti_time;
-std::string xml_file;
-std::string media_path;
-std::string scene_file;
-std::string name;
-std::string address;
+string xml_file;
+string media_path;
+string scene_file;
+string name;
+string address;
 
-// utilities are included above under GL
+// =========================================================
+// LISTE MANUELLE D'OBSTACLES (SCÉNARIO COMPLEXE)
+// =========================================================
+float obs_coords[][2] = {
+    // 1. Un mur vertical en X=1.5 (Force le détour)
+    {1.5f, -1.0f}, {1.5f, 0.0f}, {1.5f, 1.0f}, {1.5f, 2.0f},
+    
+    // 2. Un mur horizontal en Y=3.0 (Barrière du haut)
+    {-1.0f, 3.0f}, {0.0f, 3.0f}, {1.0f, 3.0f},
+    
+    // 3. Un "Goulot" étroit en (3.5, 2.0)
+    {-3.5f, 1.5f}, {3.5f, 3.5f}, 
+    
+    // 4. Protection autour du but (supposé vers 5,5)
+    {4.5f, 4.0f}, {-4.0f, 5.5f},
+    
+    // 5. Obstacles dispersés (Pièges)
+    {2.0f, 2.0f}, {2.0f, 4.0f}, {2.5f, -1.5f}, {5.0f, 0.0f}
+};
+// Nombre total d'obstacles dans la liste ci-dessus
+int nb_obs = 15; 
+// =========================================================
 
-void parseOptions(int argc, char** argv)
-{
+void parseOptions(int argc, char** argv) {
   try {
     CmdLine cmd("Command description message", ' ', "0.1");
-
-    ValueArg<std::string> nameArg("n", "name", "uav name, also used for vrpn", true, "x4", "string");
+    ValueArg<string> nameArg("n", "name", "uav name, also used for vrpn", true, "x4", "string");
     cmd.add(nameArg);
-
-    ValueArg<std::string> xmlArg("x", "xml", "xml file", true, "./reglages.xml", "string");
+    ValueArg<string> xmlArg("x", "xml", "xml file", true, "./reglages.xml", "string");
     cmd.add(xmlArg);
-
     ValueArg<int> portArg("p", "port", "ground station port", true, 9002, "int");
     cmd.add(portArg);
-
-    ValueArg<std::string> addressArg("a", "address", "ground station address", true, "127.0.0.1", "string");
+    ValueArg<string> addressArg("a", "address", "ground station address", true, "127.0.0.1", "string");
     cmd.add(addressArg);
-
     ValueArg<int> optiArg("o", "opti", "optitrack time ms", false, 0, "int");
     cmd.add(optiArg);
-
 #ifdef GL
-    ValueArg<std::string> mediaArg("m", "media", "path to media files", true, "./", "string");
+    ValueArg<string> mediaArg("m", "media", "path to media files", true, "./", "string");
     cmd.add(mediaArg);
-
-    ValueArg<std::string> sceneArg("s", "scene", "path to scene file", true, "./voliere.xml", "string");
+    ValueArg<string> sceneArg("s", "scene", "path to scene file", true, "./voliere.xml", "string");
     cmd.add(sceneArg);
 #endif
-
     cmd.parse(argc, argv);
-
-    // Get the value parsed by each arg.
     port = portArg.getValue();
     xml_file = xmlArg.getValue();
     opti_time = optiArg.getValue();
@@ -90,61 +88,20 @@ void parseOptions(int argc, char** argv)
     media_path = mediaArg.getValue();
     scene_file = sceneArg.getValue();
 #endif
-
   } catch(ArgException& e) {
     cerr << "error: " << e.error() << " for arg " << e.argId() << endl;
     exit(EXIT_FAILURE);
   }
 }
 
-// Générateur sûr d'obstacles : construit et renvoie des pointeurs `Ball*`
-// sans appeler d'API spécifique (positionnement / enregistrement au simulateur).
-#ifdef GL
-class Ball : public Model {
-public:
-    Ball(std::string name, int id, float x, float y, float z, float r) : Model(name, id), x(x), y(y), z(z) {
-        Tab *setup_tab = GetParamsTab();
-        radius = new DoubleSpinBox(setup_tab->NewRow(), "radius :", "m", 0, 10, 0.1, 2, r);
-        SetIsReady(true);
-    }
-
-    void Draw(void) {
-        node = getGui()->getSceneManager()->addSphereSceneNode(100, 16, getSceneNode());
-        
-        ITexture *texture = getGui()->getTexture("ball.jpg");
-        if(texture) node->setMaterialTexture(0, texture);
-        node->setMaterialFlag(video::EMF_LIGHTING, false);
-
-        setTriangleSelector(getGui()->getSceneManager()->createTriangleSelector(node->getMesh(), node));
-        
-        node->setScale(vector3df(radius->Value(), radius->Value(), radius->Value()));
-        node->setPosition(vector3df(x, y, z));
-    }
-    
-    void AnimateModel(void) {
-        if (radius->ValueChanged() == true) {
-            node->setScale(vector3df(radius->Value(), radius->Value(), radius->Value()));
-        }
-    }
-
-    size_t dbtSize(void) const override { return 0; }
-    void WritedbtBuf(char *dbtbuf) override {}
-    void ReaddbtBuf(char *dbtbuf) override {}
-    void CalcModel(void) override {}
-
-private:
-    irr::scene::IMeshSceneNode *node;
-    DoubleSpinBox *radius;
-    float x, y, z;
-};
-#endif
-
 int main(int argc, char* argv[]) {
   Simulator* simu;
   Model* robot;
 #ifdef GL
   Parser* gui;
+  Man* man;
 #endif
+
   parseOptions(argc, argv);
 
   simu = new Simulator("simulator", opti_time, 90);
@@ -153,18 +110,27 @@ int main(int argc, char* argv[]) {
 
 #ifdef GL
   gui = new Parser(960, 480, 960, 480, media_path, scene_file);
-  robot = new TwoWheelRobot(name, 0);
-  
-  // Generate obstacles
-  new Ball("obs_1", 1, 1.5f, 1.5f, 0.0f, 0.3f);
-  new Ball("obs_2", 2, 3.0f, 3.5f, 0.0f, 0.4f);
-  new Ball("obs_3", 3, 0.8f, 4.2f, 0.0f, 0.25f);
-
-  gui->setVisualizationCamera(robot);
-  simu->RunSimu();
 #endif
-  delete simu;
+  
+  robot = new TwoWheelRobot(name, 0);
 
+#ifdef GL
+  man = new Man("target", 1);
+
+  // CRÉATION DES BALLES DANS LE SIMULATEUR
+  for(int i = 0; i < nb_obs; i++) {
+      std::stringstream ss;
+      ss << "obs_" << i;
+      new Ball(ss.str(), 10 + i);
+  }
+#endif
+
+#ifdef GL
+  gui->setVisualizationCamera(robot);
+#endif
+  
+  simu->RunSimu();
+
+  delete simu;
   return 0;
 }
-
